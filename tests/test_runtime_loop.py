@@ -1,0 +1,69 @@
+# tests/test_runtime_loop.py
+import pytest
+from agent_runtime.models import AgentMessage, ToolCall
+from agent_runtime.tools.registry import ToolRegistry
+from agent_runtime.tools.arithmetic import AddNumbersTool
+from agent_runtime.providers.fake_provider import FakeProvider
+from agent_runtime.runtime.loop import AgentRuntime
+
+@pytest.fixture
+def registry():
+    reg = ToolRegistry()
+    reg.register(AddNumbersTool())
+    return reg
+
+def test_runtime_loop(registry):
+    """测试情况 1：模型直接回答，不调用任何工具"""
+    fake_responses = [
+        AgentMessage(role="assistant", content="Hello! How can I assist you today?")
+    ]
+    provider = FakeProvider(fake_responses)
+    runtime = AgentRuntime(provider=provider, tool_registry=registry)
+    
+    state = runtime.run("Hi there!")
+    assert state.status == "completed"
+    assert state.final_answer == "Hello! How can I assist you today?"
+    assert state.step_count == 1
+
+def test_single_tool_call_loop(registry):
+    """测试情况 2：模型调用一次工具，获取结果后给出最终回答"""
+    fake_responses = [
+        # 第一轮：模型要求调工具
+        AgentMessage(
+            role="assistant",
+            tool_calls=[ToolCall(call_id="call_001", tool_name="add_numbers", arguments={"a": 2, "b": 3})]
+        ),
+        # 第二轮：模型看到工具结果后，给出最终回答
+        AgentMessage(role="assistant", content="The result of 2 + 3 is 5.")
+    ]
+    provider = FakeProvider(fake_responses)
+    runtime = AgentRuntime(provider=provider, tool_registry=registry)
+    
+    state = runtime.run("What is 2 + 3?")
+    
+    assert state.status == "completed"
+    assert state.step_count == 2
+    # 验证工具返回的结果是否确实塞进了消息历史中
+    tool_messages = [m for m in state.messages if m.role == "tool"]
+    assert len(tool_messages) == 1
+    assert tool_messages[0].tool_result.ok is True
+    assert tool_messages[0].tool_result.output == {"result": 5}
+    assert state.final_answer == "The result of 2 + 3 is 5."
+
+def test_max_steps_exceeded(registry):
+    """测试情况 3：模型陷入死循环，疯狂要求调用工具，触发硬上限退出"""
+    # 让模型连续 3 次要求调用工具
+    fake_responses = [
+        AgentMessage(role="assistant", tool_calls=[ToolCall(call_id="c1", tool_name="add_numbers", arguments={"a": 1, "b": 1})]),
+        AgentMessage(role="assistant", tool_calls=[ToolCall(call_id="c2", tool_name="add_numbers", arguments={"a": 1, "b": 1})]),
+        AgentMessage(role="assistant", tool_calls=[ToolCall(call_id="c3", tool_name="add_numbers", arguments={"a": 1, "b": 1})]),
+    ]
+    provider = FakeProvider(fake_responses)
+    # 设定 max_steps 为 2
+    runtime = AgentRuntime(provider=provider, tool_registry=registry, max_steps=2)
+    
+    state = runtime.run("Loop me!")
+    assert state.status == "max_steps_exceeded"
+    assert state.step_count == 2
+    
+    

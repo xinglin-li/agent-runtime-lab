@@ -1,0 +1,68 @@
+# tests/test_validation.py
+import pytest
+from agent_runtime.models import AgentMessage, ToolCall
+from agent_runtime.tools.registry import ToolRegistry
+from agent_runtime.tools.arithmetic import AddNumbersTool
+from agent_runtime.providers.fake_provider import FakeProvider
+from agent_runtime.runtime.loop import AgentRuntime
+
+@pytest.fixture
+def runtime_env():
+    reg = ToolRegistry()
+    reg.register(AddNumbersTool())
+    return reg
+
+def test_invalid_argument_types(runtime_env):
+    """传入错误类型：模型脑抽，把数字传成了无法强转的非数字字符串"""
+    fake_responses = [
+        AgentMessage(role="assistant", tool_calls=[
+            ToolCall(call_id="c1", tool_name="add_numbers", arguments={"a": "not_a_number", "b": 3})
+        ]),
+        AgentMessage(role="assistant", content="Sorry, I gave wrong args.")
+    ]
+    runtime = AgentRuntime(FakeProvider(fake_responses), runtime_env)
+    state = runtime.run("calc")
+    
+    tool_msg = [m for m in state.messages if m.role == "tool"][0]
+    res = tool_msg.tool_result
+    assert res.ok is False
+    assert res.error["error_type"] == "invalid_arguments"
+
+def test_missing_arguments(runtime_env):
+    """缺少必填参数：漏掉了参数 b"""
+    fake_responses = [
+        AgentMessage(role="assistant", tool_calls=[
+            ToolCall(call_id="c2", tool_name="add_numbers", arguments={"a": 10})
+        ]),
+    ]
+    runtime = AgentRuntime(FakeProvider(fake_responses), runtime_env)
+    state = runtime.run("calc")
+    res = [m for m in state.messages if m.role == "tool"][0].tool_result
+    assert res.ok is False
+    assert "b" in str(res.error["details"])
+
+def test_business_validation_boundary(runtime_env):
+    """测试自定义的 validator：数值超过 10000 触发业务边界拒绝"""
+    fake_responses = [
+        AgentMessage(role="assistant", tool_calls=[
+            ToolCall(call_id="c3", tool_name="add_numbers", arguments={"a": 999999, "b": 1})
+        ]),
+    ]
+    runtime = AgentRuntime(FakeProvider(fake_responses), runtime_env)
+    state = runtime.run("calc")
+    res = [m for m in state.messages if m.role == "tool"][0].tool_result
+    assert res.ok is False
+    assert res.error["error_type"] == "invalid_arguments"
+
+def test_unknown_tool_error(runtime_env):
+    """测试模型调用了根本没有注册的垃圾工具"""
+    fake_responses = [
+        AgentMessage(role="assistant", tool_calls=[
+            ToolCall(call_id="c4", tool_name="sub_numbers", arguments={"a": 1, "b": 1})
+        ]),
+    ]
+    runtime = AgentRuntime(FakeProvider(fake_responses), runtime_env)
+    state = runtime.run("calc")
+    res = [m for m in state.messages if m.role == "tool"][0].tool_result
+    assert res.ok is False
+    assert res.error["error_type"] == "unknown_tool"

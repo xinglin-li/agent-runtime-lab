@@ -1,0 +1,23 @@
+# src/agent_runtime/tools/registry.py
+from typing import Dict, List, Any
+from agent_runtime.tools.base import BaseTool
+
+class ToolRegistry:
+    def __init__(self):
+        self._tools: Dict[str, BaseTool] = {}
+    
+    def register(self, tool: BaseTool):
+        # 防御性编程：禁止静默覆盖同名工具
+        if tool.name in self._tools:
+            raise KeyError(f"Tool collision detected: '{tool.name}' is already registered.")
+        self._tools[tool.name] = tool
+        
+    def get_tool(self, name: str) -> BaseTool:
+        """Retrieve a tool by its name."""
+        if name not in self._tools:
+            raise KeyError(f"Unknown tool: '{name}'")
+        return self._tools[name]
+    
+    def list_schemas(self) -> List[Dict[str, Any]]:
+        """List all registered tools in OpenAI schema format."""
+        return [tool.get_json_schema() for tool in self._tools.values()]
