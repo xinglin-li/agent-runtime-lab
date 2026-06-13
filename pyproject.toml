@@ -1,2 +1,16 @@
+[project]
+name = "agent-runtime-lab"
+version = "0.1.0"
+description = "A minimalist, framework-free Agent Runtime built from scratch"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0.0",
+    "fastapi",
+    "uvicorn",
+    "httpx",
+    "python-dotenv",
+]
+
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 pythonpath = ["src"]

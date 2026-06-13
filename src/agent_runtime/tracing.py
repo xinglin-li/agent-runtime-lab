@@ -10,7 +10,7 @@ class TraceEvent(BaseModel):
     step: int
     payload: Dict[str, Any] = Field(default_factory=dict)
 
-class TraceLogger:
+class TraceRecorder:
     def __init__(self):
         self.events: List[TraceEvent] = []
         
