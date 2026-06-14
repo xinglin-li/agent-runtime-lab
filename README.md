@@ -6,6 +6,22 @@ This repository implements the core control plane behind an AI agent without Lan
 
 The project is intentionally small, but it is designed around the same engineering constraints that matter in financial and infrastructure-grade AI systems: deterministic control, bounded side effects, auditability, and failure containment.
 
+## Project Status
+
+This is an educational runtime lab and prototype, not a production-ready agent platform.
+
+The purpose of this repository is to make agent runtime mechanics visible and testable: control flow, validation, tracing, retries, concurrency, API boundaries, and side-effect containment. It should be treated as a learning and architecture demonstration project.
+
+Requires Python 3.11+. Tested locally with Python 3.12.
+
+## Security Notice
+
+This project demonstrates application-level guardrails such as tool allowlists, schema validation, path checks, subprocess timeouts, and structured error handling.
+
+It is not a secure sandbox.
+
+Do not run untrusted scripts through this project. Do not expose the FastAPI service directly to the public internet. Do not treat the subprocess runner as an isolation boundary. Production-grade execution of untrusted code requires operating-system-level isolation such as containers, cgroups, seccomp, gVisor, Firecracker, separate users, filesystem restrictions, CPU and memory quotas, and network egress controls.
+
 ## What This Builds
 
 `agent-runtime-lab` contains:
@@ -408,6 +424,15 @@ OS-level sandbox:
 
 Production-grade subprocess isolation should add controls such as containers, cgroups, seccomp, gVisor, Firecracker, separate users, filesystem mounts, CPU and memory quotas, and network egress policy.
 
+## What This Is Not
+
+- Not a LangChain or LangGraph replacement.
+- Not a secure code execution sandbox.
+- Not a production persistence layer.
+- Not a real trading system.
+- Not financial advice or an investment recommendation engine.
+- Not intended to be exposed directly as a public internet service.
+
 ## Known Limitations
 
 - The API uses an in-memory `RUNS_DATABASE`; state is lost on service restart.
@@ -441,3 +466,7 @@ The LLM is probabilistic. The runtime is deterministic.
 This project demonstrates how to wrap a non-deterministic model inside hard software boundaries: typed messages, schema-validated tools, registry allowlists, bounded loops, structured errors, trace events, timeout controls, idempotency keys, and API DTOs.
 
 That is the core engineering move: let the model propose actions, but let deterministic runtime code decide what is allowed to happen.
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
