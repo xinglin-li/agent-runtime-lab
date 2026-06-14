@@ -12,7 +12,7 @@ def main():
     try:
         with open(file_path, mode='r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
-            # 假设计算第二列（sales）的平均值
+            # Compute the average of the second column, assumed to be sales.
             sales = [float(row['sales']) for row in reader if row.get('sales')]
             if not sales:
                 print("No active elements found.", file=sys.stderr)

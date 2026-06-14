@@ -8,7 +8,7 @@ from agent_runtime.runtime.loop import AgentRuntime
 from pydantic import BaseModel, Field
 from typing import Type
 
-# 构造一个会触发网络波动的假工具
+# Fake tool that simulates transient network instability.
 class MockNetInput(BaseModel):
     pass
 class MockNetOutput(BaseModel):
@@ -28,13 +28,13 @@ class FlakyNetworkTool(BaseTool[MockNetInput, MockNetOutput]):
     
     def run(self, args: MockNetInput) -> MockNetOutput:
         self.calls += 1
-        # 前2次调用故意抛出连接错误，第3次成功
+        # First two calls fail with connection errors; the third succeeds.
         if self.calls < 3:
             raise ConnectionError("Timeout connection drop.")
         return MockNetOutput(data="Success Data")
 
 def test_transient_error_self_healing():
-    """验证底层重试机制：网络波动 2 次后第 3 次成功，系统对大模型无感愈合"""
+    """Transient network errors should self-heal after retries."""
     reg = ToolRegistry()
     flaky_tool = FlakyNetworkTool()
     reg.register(flaky_tool)
@@ -48,16 +48,16 @@ def test_transient_error_self_healing():
     state = runtime.run("Get server data.")
     
     assert state.status == "completed"
-    assert flaky_tool.calls == 3  # 确实调用了 3 次
+    assert flaky_tool.calls == 3  # The tool was called exactly three times.
     
-    # 验证 Trace 中是否完整记录了底层重试的轨迹
+    # The trace should record both lower-level retry failures.
     transient_events = [e for e in state.trace_events if e.event_type == "tool_transient_error"]
     assert len(transient_events) == 2
     assert state.trace_events[-1].event_type == "run_completed"
 
 def test_fatal_error_stops_runtime():
-    """验证未知工具属于非 retryable 致命错误，必须立刻阻断状态机，防止无限循环"""
-    reg = ToolRegistry() # 空注册表
+    """Unknown tools are non-retryable fatal errors and should stop the runtime."""
+    reg = ToolRegistry() # Empty registry.
     fake_responses = [
         AgentMessage(role="assistant", tool_calls=[ToolCall(call_id="c_fatal", tool_name="unknown_tool", arguments={})]),
     ]

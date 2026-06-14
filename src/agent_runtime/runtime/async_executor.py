@@ -10,16 +10,15 @@ from pydantic import ValidationError
 class AsyncToolExecutor:
     def __init__(self, tool_registry: ToolRegistry, max_concurrency: int = 2):
         self.tool_registry = tool_registry
-        self.semaphore = asyncio.Semaphore(max_concurrency) # 核心并发闸门
+        self.semaphore = asyncio.Semaphore(max_concurrency) # Core concurrency gate.
     
     async def execute_single_tool_with_sem(self, tool_call: ToolCall) -> ToolResult:
-        # 使用信号量卡住并发上限，超出限制的任务会在这一步异步挂起等待
+        # Use a semaphore to enforce the concurrency limit; excess tasks wait here.
         async with self.semaphore:
             try:
                 tool = self.tool_registry.get_tool(tool_call.tool_name)
-                # 为了兼容我们之前写的同步工具 execute，我们使用 asyncio.to_thread 
-                # 将同步阻塞的 I/O 或进程调度无缝转换为异步非阻塞协程
-                # 如果未来工具本身就是 async def，则可以直接 await
+                # Run synchronous tool execution in an executor to avoid blocking the event loop.
+                # If future tools are native async functions, they can be awaited directly.
                 loop = asyncio.get_running_loop()
                 output = await loop.run_in_executor(None, tool.execute, tool_call.arguments)
                 
@@ -37,24 +36,24 @@ class AsyncToolExecutor:
         
     async def execute_batch(self, tool_calls: List[ToolCall], batch_timeout: float = 5.0) -> List[ToolResult]:
         """
-        并发执行一组工具，支持整体超时。
-        一旦触发超时，所有尚未完成的异步任务会被瞬间 Cancel 释放，不引发资源泄露。
+        Execute a batch of tool calls concurrently with a batch-level timeout.
+        On timeout, pending tasks are cancelled and gathered to avoid leaks.
         """
         tasks = [asyncio.create_task(self.execute_single_tool_with_sem(call)) for call in tool_calls]
         
         try:
-            # 开启高维限时全家桶
+            # Enforce the batch-level timeout.
             return await asyncio.wait_for(asyncio.gather(*tasks), timeout=batch_timeout)
         except asyncio.TimeoutError:
-            # 捕获整体超时：果断把所有子任务全部强行掐断
+            # Batch timeout: cancel all unfinished child tasks.
             for task in tasks:
                 if not task.done():
                     task.cancel()
             
-            # 等待它们安全退出，收拾残局
+            # Wait for all tasks to settle.
             await asyncio.gather(*tasks, return_exceptions=True)
             
-            # 为每一个任务组装结构化的超时 Observation
+            # Return one timeout observation per requested call so callers can preserve call_id mapping.
             results = []
             for call in tool_calls:
                 err = AgentError(

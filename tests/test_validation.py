@@ -13,7 +13,7 @@ def runtime_env():
     return reg
 
 def test_invalid_argument_types(runtime_env):
-    """传入错误类型：模型脑抽，把数字传成了无法强转的非数字字符串"""
+    """Invalid argument types should be returned as invalid_arguments errors."""
     fake_responses = [
         AgentMessage(role="assistant", tool_calls=[
             ToolCall(call_id="c1", tool_name="add_numbers", arguments={"a": "not_a_number", "b": 3})
@@ -29,7 +29,7 @@ def test_invalid_argument_types(runtime_env):
     assert res.error["error_type"] == "invalid_arguments"
 
 def test_missing_arguments(runtime_env):
-    """缺少必填参数：漏掉了参数 b"""
+    """Missing required arguments should be rejected."""
     fake_responses = [
         AgentMessage(role="assistant", tool_calls=[
             ToolCall(call_id="c2", tool_name="add_numbers", arguments={"a": 10})
@@ -42,7 +42,7 @@ def test_missing_arguments(runtime_env):
     assert "b" in str(res.error["details"])
 
 def test_business_validation_boundary(runtime_env):
-    """测试自定义的 validator：数值超过 10000 触发业务边界拒绝"""
+    """Domain validation should reject values beyond the configured boundary."""
     fake_responses = [
         AgentMessage(role="assistant", tool_calls=[
             ToolCall(call_id="c3", tool_name="add_numbers", arguments={"a": 999999, "b": 1})
@@ -55,7 +55,7 @@ def test_business_validation_boundary(runtime_env):
     assert res.error["error_type"] == "invalid_arguments"
 
 def test_unknown_tool_error(runtime_env):
-    """测试模型调用了根本没有注册的垃圾工具"""
+    """Calls to unregistered tools should return unknown_tool errors."""
     fake_responses = [
         AgentMessage(role="assistant", tool_calls=[
             ToolCall(call_id="c4", tool_name="sub_numbers", arguments={"a": 1, "b": 1})

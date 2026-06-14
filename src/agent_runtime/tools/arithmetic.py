@@ -7,7 +7,7 @@ class AddInput(BaseModel):
     a: float = Field(..., description="The first number")
     b: float = Field(..., description="The second number")
 
-    # 顺手加一个业务校验（Domain Validation）作为演示：假设我们系统不允许计算超过 10000 的加f法
+    # Domain validation demo: reject calculations with values whose magnitude exceeds 10000.
     @field_validator("a", "b")
     @classmethod
     def limit_max_value(cls, v: float) -> float:
@@ -36,4 +36,5 @@ class AddNumbersTool(BaseTool[AddInput, AddOutput]):
         return AddOutput
 
     def run(self, args: AddInput) -> AddOutput:
+        # Business logic receives already-validated input; no raw dict parsing belongs here.
         return AddOutput(result=args.a + args.b)

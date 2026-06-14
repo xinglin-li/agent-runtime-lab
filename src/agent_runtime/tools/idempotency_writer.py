@@ -13,7 +13,8 @@ class IdempotentOutput(BaseModel):
 
 class IdempotencyRunMarkerTool(BaseTool[IdempotentInput, IdempotentOutput]):
     def __init__(self):
-        # 使用一个封闭的集合（Set）充当生产环境中的 Redis 去重键表
+        # Use an in-memory set as a stand-in for a production Redis idempotency table.
+        # This is process-local and only suitable for tests or single-process demos.
         self._seen_operations: Set[str] = set()
     
     @property
@@ -33,14 +34,14 @@ class IdempotencyRunMarkerTool(BaseTool[IdempotentInput, IdempotentOutput]):
         return IdempotentOutput
     
     def run(self, args: IdempotentInput) -> IdempotentOutput:
-        # 核心防线：检查是否是重复提交的任务
+        # Core guardrail: reject duplicate submissions.
         if args.operation_id in self._seen_operations:
             return IdempotentOutput(
                 status="skipped",
                 message=f"Idempotency hit: Operation '{args.operation_id}' has already been processed. Guarded against double action."
             )
         
-        # 如果是首次看到，模拟耗时的写入动作并记录令牌
+        # First-time operation: simulate a write and record the token.
         self._seen_operations.add(args.operation_id)
         return IdempotentOutput(
             status="committed",

@@ -5,7 +5,8 @@ from typing import Type, Dict, Any
 from pydantic import BaseModel, Field, field_validator
 from agent_runtime.tools.base import BaseTool
 
-# 声明允许被执行的脚本白名单
+# Allowlist of scripts that may be executed.
+# This is an application-level control, not a full OS sandbox.
 APPROVED_SCRIPTS = {
     "safe_describe_csv": "scripts/safe_describe_csv.py",
     "safe_series_summary": "scripts/safe_series_summary.py"
@@ -26,7 +27,7 @@ class ScriptRunnerInput(BaseModel):
     @field_validator("file_path")
     @classmethod
     def validate_path_boundary(cls, v: str) -> str:
-        # 防护边界条件：严禁通过 ../ 逃逸出 sample_data 目录
+        # Boundary guard: never allow ../ traversal outside sample_data.
         base_dir = Path("sample_data").resolve()
         target_path = (base_dir / v).resolve()
         
@@ -63,21 +64,22 @@ class ControlledScriptRunnerTool(BaseTool[ScriptRunnerInput, ScriptRunnerOutput]
         import time
         
         script_path = APPROVED_SCRIPTS[args.script_name]
+        # file_path has already been normalized and boundary-checked by ScriptRunnerInput.
         full_data_path = str(Path("sample_data").resolve() / args.file_path)
         
-        # 核心防线 1：绝对禁止 shell=True，绝对不通过字符串拼接命令
-        # 我们显式传递参数数组给操作系统进程创建函数
+        # Core guardrail 1: never use shell=True or string-concatenated commands.
+        # Pass an explicit argument array to the OS process creation API.
         cmd = ["python", script_path, full_data_path]
         
         start_time = time.perf_counter()
         try:
-            # 核心防线 2：必须设置有界有上限的 timeout
+            # Core guardrail 2: always enforce a bounded timeout.
             res = subprocess.run(
                 cmd,
-                capture_output=True,  # 捕获 stdout 和 stderr
-                text=True,            # 自动解码为字符串
+                capture_output=True,  # Capture stdout and stderr.
+                text=True,            # Decode output as strings.
                 timeout=args.timeout_seconds,
-                shell=False           # 拒绝拉起系统 Shell 解析器
+                shell=False           # Do not invoke a system shell.
             )
             duration = (time.perf_counter() - start_time) * 1000
             
@@ -92,7 +94,7 @@ class ControlledScriptRunnerTool(BaseTool[ScriptRunnerInput, ScriptRunnerOutput]
             
         except subprocess.TimeoutExpired as e:
             duration = (time.perf_counter() - start_time) * 1000
-            # 捕获超时异常，优雅返回强类型结果，不让父进程雪崩
+            # Convert timeout into a typed result instead of crashing the parent process.
             return ScriptRunnerOutput(
                 script_name=args.script_name,
                 exit_code=-1,
