@@ -13,7 +13,7 @@ def registry():
     return reg
 
 def test_runtime_loop(registry):
-    """测试情况 1：模型直接回答，不调用任何工具"""
+    """The model can directly answer without calling tools."""
     fake_responses = [
         AgentMessage(role="assistant", content="Hello! How can I assist you today?")
     ]
@@ -26,14 +26,14 @@ def test_runtime_loop(registry):
     assert state.step_count == 1
 
 def test_single_tool_call_loop(registry):
-    """测试情况 2：模型调用一次工具，获取结果后给出最终回答"""
+    """The runtime should execute one tool call and then return the final answer."""
     fake_responses = [
-        # 第一轮：模型要求调工具
+        # First turn: the model requests a tool call.
         AgentMessage(
             role="assistant",
             tool_calls=[ToolCall(call_id="call_001", tool_name="add_numbers", arguments={"a": 2, "b": 3})]
         ),
-        # 第二轮：模型看到工具结果后，给出最终回答
+        # Second turn: the model sees the tool result and gives the final answer.
         AgentMessage(role="assistant", content="The result of 2 + 3 is 5.")
     ]
     provider = FakeProvider(fake_responses)
@@ -43,7 +43,7 @@ def test_single_tool_call_loop(registry):
     
     assert state.status == "completed"
     assert state.step_count == 2
-    # 验证工具返回的结果是否确实塞进了消息历史中
+    # Verify the tool result was written into message history.
     tool_messages = [m for m in state.messages if m.role == "tool"]
     assert len(tool_messages) == 1
     assert tool_messages[0].tool_result.ok is True
@@ -51,15 +51,15 @@ def test_single_tool_call_loop(registry):
     assert state.final_answer == "The result of 2 + 3 is 5."
 
 def test_max_steps_exceeded(registry):
-    """测试情况 3：模型陷入死循环，疯狂要求调用工具，触发硬上限退出"""
-    # 让模型连续 3 次要求调用工具
+    """Repeated tool calls should stop when max_steps is exceeded."""
+    # Make the model request tool calls repeatedly.
     fake_responses = [
         AgentMessage(role="assistant", tool_calls=[ToolCall(call_id="c1", tool_name="add_numbers", arguments={"a": 1, "b": 1})]),
         AgentMessage(role="assistant", tool_calls=[ToolCall(call_id="c2", tool_name="add_numbers", arguments={"a": 1, "b": 1})]),
         AgentMessage(role="assistant", tool_calls=[ToolCall(call_id="c3", tool_name="add_numbers", arguments={"a": 1, "b": 1})]),
     ]
     provider = FakeProvider(fake_responses)
-    # 设定 max_steps 为 2
+    # Set max_steps to 2.
     runtime = AgentRuntime(provider=provider, tool_registry=registry, max_steps=2)
     
     state = runtime.run("Loop me!")

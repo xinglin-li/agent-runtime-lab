@@ -7,7 +7,7 @@ def test_tool_collision():
     reg = ToolRegistry()
     reg.register(AddNumbersTool())
     
-    # 重复注册同名工具必须直接炸开，不能允许静默覆盖
+    # Duplicate tool names must fail fast instead of silently overwriting.
     with pytest.raises(KeyError, match="Tool collision detected"):
         reg.register(AddNumbersTool())
 

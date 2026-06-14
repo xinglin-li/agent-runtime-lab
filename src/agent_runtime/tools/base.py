@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Type, Generic, TypeVar
 from pydantic import BaseModel
 
-# 定义输入输出的泛型绑定
+# Generic bounds for tool input and output models.
 InputT = TypeVar('InputT', bound=BaseModel)
 OutputT = TypeVar('OutputT', bound=BaseModel)
 
@@ -39,20 +39,22 @@ class BaseTool(ABC, Generic[InputT, OutputT]):
 
     def execute(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Runtime 调用的统一入口。
-        负责反序列化、类型校验、执行、以及输出校验。
+        Unified runtime entry point.
+        Handles deserialization, input validation, execution, and output validation.
         """
-        # 1. 强转并校验输入参数 (Schema & Business Validation)
+        # Tool implementations should override run(), not execute(); this keeps every tool
+        # behind the same validation and serialization boundary.
+        # 1. Coerce and validate input arguments.
         validated_input = self.input_model.model_validate(arguments)
         
-        # 2. 执行工具逻辑
+        # 2. Execute tool logic.
         validated_output = self.run(validated_input)
         
-        # 3. 校验并返回字典形式的输出
+        # 3. Return the validated output as a dictionary.
         return validated_output.model_dump()
 
     def get_json_schema(self) -> Dict[str, Any]:
-        """生成供 LLM 阅读的 OpenAI 格式工具声明"""
+        """Generate an OpenAI-style tool schema for LLM consumption."""
         return {
             "name": self.name,
             "description": self.description,
