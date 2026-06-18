@@ -34,6 +34,8 @@ class AgentMessage(BaseModel):
     content: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = None
     tool_result: Optional[ToolResult] = None
+    # V2: structured rationale carried alongside assistant messages.
+    rationale: Optional["PlannerRationale"] = None
 
 
 # ──────────────────────────────────────────────────────────────

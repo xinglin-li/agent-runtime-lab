@@ -53,7 +53,8 @@ def test_transient_error_self_healing():
     # The trace should record both lower-level retry failures.
     transient_events = [e for e in state.trace_events if e.event_type == "tool_transient_error"]
     assert len(transient_events) == 2
-    assert state.trace_events[-1].event_type == "run_completed"
+    # V2: stop_reason_recorded is emitted after run_completed.
+    assert any(e.event_type == "run_completed" for e in state.trace_events)
 
 def test_fatal_error_stops_runtime():
     """Unknown tools are non-retryable fatal errors and should stop the runtime."""
