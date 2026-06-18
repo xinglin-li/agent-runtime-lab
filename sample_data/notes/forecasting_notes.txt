@@ -1,0 +1,11 @@
+Sales forecasting assumptions Q1 2026
+
+Linear trend model assumes 5% MoM growth.
+Seasonal adjustment factor for January is 0.85.
+Confidence interval at 95% requires at least 12 data points.
+
+Key risks:
+- Supply chain disruptions may delay delivery by 2-3 weeks.
+- Currency fluctuation could impact import costs by up to 3%.
+
+Recommendation: use ensemble of linear + exponential smoothing.
