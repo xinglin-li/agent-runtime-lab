@@ -298,9 +298,6 @@ class AgentRuntime:
             state.status = "completed"
             state.final_answer = assistant_msg.content
             state.stop_reason = "final_answer"
-            recorder.record(run_id, "run_completed", state.step_count, {
-                "final_answer": state.final_answer,
-            })
 
             stop_step = AgentStepBuilder.build_direct_answer_step(
                 run_id, state.step_count, rationale=rationale,
@@ -308,6 +305,9 @@ class AgentRuntime:
             state.steps.append(stop_step)
             recorder.record(run_id, "stop_reason_recorded", state.step_count, {
                 "reason": "final_answer",
+            })
+            recorder.record(run_id, "run_completed", state.step_count, {
+                "final_answer": state.final_answer,
             })
 
         state.trace_events = recorder.events
