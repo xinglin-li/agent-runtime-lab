@@ -26,16 +26,18 @@ Do not run untrusted scripts through this project. Do not expose the FastAPI ser
 
 `agent-runtime-lab` contains:
 
-- A deterministic agent loop with explicit `AgentState`.
+- A **Structured ReAct runtime** with explicit `AgentState`, `AgentStep`, `PlannerRationale`, `ToolObservation`, and `StopReason`.
 - A `ToolRegistry` allowlist for tool routing.
 - Pydantic v2 input and output validation for every tool.
-- Structured `ToolCall`, `ToolResult`, `AgentError`, and `TraceEvent` models.
+- Structured `ToolCall`, `ToolResult`, `AgentError`, `TraceEvent`, and V2 trajectory models.
+- Per-step `AgentStep` trajectory construction for future eval replay.
 - Retry policy for transient tool failures.
 - Async batch execution with semaphore backpressure and hard timeout.
 - Idempotency protection for repeated write-like actions.
 - Controlled subprocess execution with script allowlist and path boundary checks.
+- Read-only file tools for notes (`read_note`, `list_notes`) and CSV data (`describe_csv`) with path boundary enforcement.
 - FastAPI endpoints for ticket-based async run submission, polling, trace lookup, and cancellation.
-- A pytest suite covering normal paths, validation boundaries, failure policy, async execution, subprocess safety, and API contracts.
+- A pytest suite (30 tests) covering normal paths, validation boundaries, failure policy, async execution, subprocess safety, trajectory trace ordering, and API contracts.
 
 ## Architecture
 
@@ -83,12 +85,12 @@ Do not run untrusted scripts through this project. Do not expose the FastAPI ser
    +--------------------------------------------------------------+
    |                     ENVIRONMENT EXECUTORS                    |  <-- side-effect boundary
    |                                                              |
-   |   Pure tools             Idempotent writes       Subprocess  |
-   |   AddNumbersTool         Run marker guard        approved    |
-   |                                                scripts only  |
-   |                                                shell=False   |
-   |                                                path boundary |
-   |                                                hard timeout  |
+   |   Pure tools        Read-only files     Subprocess           |
+   |   AddNumbersTool    ReadNoteTool        approved             |
+   |                     ListNotesTool       scripts only         |
+   |                     DescribeCsvTool     shell=False          |
+   |                                        path boundary        |
+   |                                        hard timeout         |
    +--------------------------------------------------------------+
 ```
 
@@ -112,16 +114,20 @@ agent-runtime-lab/
         async_executor.py
         loop.py
         state.py
+        steps.py
       tools/
         arithmetic.py
         base.py
         idempotency_writer.py
+        notes.py
         registry.py
         script_runner.py
+        series.py
   scripts/
     safe_describe_csv.py
     safe_series_summary.py
   sample_data/
+    notes/forecasting_notes.txt
     series/monthly_sales.csv
   tests/
     test_api.py
@@ -130,6 +136,7 @@ agent-runtime-lab/
     test_registry.py
     test_runtime_loop.py
     test_script_runner.py
+    test_trajectory_trace.py
     test_validation.py
 ```
 
@@ -151,7 +158,7 @@ pytest -v
 Expected result at the time of writing:
 
 ```text
-22 passed
+30 passed
 ```
 
 Run the FastAPI service:
@@ -211,7 +218,33 @@ The runtime owns:
 
 This separation matters because production software cannot rely on prompt instructions as a hard safety boundary. Prompt constraints are probabilistic. Code-level allowlists and validators are deterministic.
 
-### 2. ToolRegistry as a Hard Allowlist
+### 2. Structured ReAct Loop
+
+The runtime follows a structured ReAct pattern:
+
+```text
+observe state
+ -> produce PlannerRationale (compact summary, NOT raw CoT)
+ -> choose typed ToolAction
+ -> validate tool schema
+ -> execute deterministic tool
+ -> record ToolObservation
+ -> build AgentStep with rationale + action + observation
+ -> write StopReason on termination
+ -> stop or continue
+```
+
+Every loop iteration produces a typed `AgentStep` that contains:
+- `PlannerRationale` — why the model chose this action
+- `ToolAction` — the validated, runtime-approved action
+- `ToolObservation` — the structured result of execution
+- `StopReason` — on the final step: `final_answer`, `max_steps_exceeded`, `non_retryable_error`, `cancelled`, or `provider_failed`
+
+This structured trajectory is the minimum unit for future eval replay (Week 4, 8, 10).
+
+Important: the system records compact `PlannerRationale` summaries, NOT the model's raw hidden chain-of-thought.
+
+### 3. ToolRegistry as a Hard Allowlist
 
 Tools are not discovered or executed by name freely. Every callable tool must be registered:
 
@@ -222,7 +255,7 @@ reg.register(AddNumbersTool())
 
 Unknown tool names return structured `unknown_tool` errors. Duplicate tool registration raises immediately instead of silently replacing existing behavior.
 
-### 3. Pydantic as the Tool Boundary
+### 4. Pydantic as the Tool Boundary
 
 Every tool declares:
 
@@ -239,25 +272,30 @@ Every tool declares:
 
 Example: `AddNumbersTool` rejects values whose magnitude exceeds the configured business boundary.
 
-### 4. TraceEvent as the Audit Log
+### 5. TraceEvent as the Audit Log
 
 The runtime records structured events such as:
 
 - `run_started`
 - `model_requested`
 - `model_responded`
+- `rationale_recorded`
 - `tool_call_received`
+- `tool_action_created`
 - `tool_started`
 - `tool_transient_error`
 - `tool_succeeded`
 - `tool_validation_failed`
 - `tool_failed`
+- `observation_recorded`
+- `step_completed`
+- `stop_reason_recorded`
 - `run_completed`
 - `max_steps_exceeded`
 
-This makes the agent observable. A failing run can be debugged by replaying the trajectory instead of guessing from the final answer.
+This makes the agent observable. A failing run can be debugged by replaying the trajectory instead of guessing from the final answer. Causal ordering (rationale → action → execution → observation → stop_reason) is verified by the trajectory test suite.
 
-### 5. Async Tool Execution and Backpressure
+### 6. Async Tool Execution and Backpressure
 
 `AsyncToolExecutor` supports concurrent tool execution while preserving bounded resource usage:
 
@@ -268,13 +306,13 @@ This makes the agent observable. A failing run can be debugged by replaying the 
 
 This is a minimal model of backpressure for agent tool execution.
 
-### 6. Idempotency for Write-Like Actions
+### 7. Idempotency for Write-Like Actions
 
 `IdempotencyRunMarkerTool` demonstrates a basic guard against repeated side effects. It uses `operation_id` as a client-generated idempotency key and skips duplicate writes.
 
 This is important because LLMs can retry, duplicate, or re-emit tool calls. Write-like tools must be protected against double execution.
 
-### 7. Controlled Subprocess Execution
+### 8. Controlled Subprocess Execution
 
 `ControlledScriptRunnerTool` intentionally treats subprocess execution as a dangerous side-effect boundary.
 
@@ -289,6 +327,18 @@ It enforces:
 - structured stdout, stderr, exit code, duration, and timeout result
 
 Subprocess execution is useful for isolated analytics scripts, but it is not a complete sandbox.
+
+### 9. Read-Only File Tools
+
+Three read-only tools provide safe access to structured data under path boundaries:
+
+| Tool | Input | Output |
+|---|---|---|
+| `read_note` | filename | `{content, exists}` |
+| `list_notes` | (none) | `{filenames}` |
+| `describe_csv` | filename | `{headers, row_count, exists}` |
+
+All file access is restricted to `sample_data/notes/` and `sample_data/series/` with `..` traversal rejection and `resolve()` + `is_relative_to()` double-checking.
 
 ## API Contract
 
@@ -355,6 +405,7 @@ The test suite covers:
 | Area | Coverage |
 | --- | --- |
 | Runtime loop | direct answer, single tool call, max step protection |
+| Trajectory trace | AgentStep structure, causal event ordering, no raw CoT, StopReason |
 | Registry | duplicate registration rejection, schema listing |
 | Validation | invalid types, missing args, business boundary, unknown tool |
 | Error policy | transient retry self-healing, fatal unknown-tool stop |
@@ -371,13 +422,13 @@ pytest -v
 Run one test file:
 
 ```bash
-pytest tests/test_async_executor.py -v
+pytest tests/test_trajectory_trace.py -v
 ```
 
 Run one test:
 
 ```bash
-pytest tests/test_error_policy.py::test_transient_error_self_healing -v
+pytest tests/test_trajectory_trace.py::test_rationale_recorded_before_tool_started -v
 ```
 
 ## Why Framework-Free
@@ -443,6 +494,7 @@ Production-grade subprocess isolation should add controls such as containers, cg
 - The subprocess runner is allowlisted but not OS-sandboxed.
 - Parallel tool execution currently assumes calls are independent; causal tool dependencies require explicit scheduling metadata.
 - Trace output is returned directly; production APIs should filter sensitive payloads.
+- `AgentStep` trajectory is recorded in memory only; not persisted across restarts.
 
 ## Future Work
 
@@ -458,6 +510,7 @@ Next directions:
 - OS-level sandboxing for subprocess tools.
 - Golden dataset evaluation for non-deterministic agent behavior.
 - LLM-as-a-judge semantic assertions for answer quality and safety.
+- Trajectory replay and evaluation from persisted AgentStep sequences.
 
 ## Design Summary
 
